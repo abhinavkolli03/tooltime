@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 import { db } from '@/services/firebase';
 import { useAuth } from './useAuth';
@@ -36,37 +36,40 @@ export const usePushNotifications = () => {
                 });
             }
 
-            if (Device.isDevice) {
-                const { status: existingStatus } = await Notifications.getPermissionsAsync();
-                let finalStatus = existingStatus;
-                if (existingStatus !== 'granted') {
-                    const { status } = await Notifications.requestPermissionsAsync();
-                    finalStatus = status;
-                }
+            if (!Device.isDevice) {
+                console.log('Mocking push token for Simulator...');
+                const userDocRef = doc(db, 'users', user.uid);
+                await setDoc(userDocRef, { pushToken: 'mock-simulator-token-123' }, { merge: true });
+                return;
+            }
 
-                if (finalStatus !== 'granted') {
-                    console.log('Failed to get push token for push notification!');
-                    return;
-                }
+            const { status: existingStatus } = await Notifications.getPermissionsAsync();
+            let finalStatus = existingStatus;
+            if (existingStatus !== 'granted') {
+                const { status } = await Notifications.requestPermissionsAsync();
+                finalStatus = status;
+            }
 
-                const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID || 'dummy-project-id'; // Assuming standard EAS build configuration
-                try {
-                    const pushTokenString = (
-                        await Notifications.getExpoPushTokenAsync({
-                            projectId,
-                        })
-                    ).data;
+            if (finalStatus !== 'granted') {
+                console.log('Failed to get push token for push notification!');
+                return;
+            }
 
-                    // Save token to Firestore
-                    const userDocRef = doc(db, 'users', user.uid);
-                    await updateDoc(userDocRef, {
-                        pushToken: pushTokenString
-                    });
-                } catch (e: any) {
-                    console.error(e);
-                }
-            } else {
-                console.log('Must use physical device for Push Notifications');
+            const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID || 'dummy-project-id';
+            try {
+                const pushTokenString = (
+                    await Notifications.getExpoPushTokenAsync({
+                        projectId,
+                    })
+                ).data;
+
+                // Save token to Firestore
+                const userDocRef = doc(db, 'users', user.uid);
+                await setDoc(userDocRef, {
+                    pushToken: pushTokenString
+                }, { merge: true });
+            } catch (e: any) {
+                console.error(e);
             }
         };
 
@@ -78,7 +81,12 @@ export const usePushNotifications = () => {
 
         responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
             const data = response.notification.request.content.data;
-            if (data?.type === 'booking_accepted') {
+            console.log('Notification Response:', data);
+
+            // Handle deep linking routes from notification data
+            if (data?.route) {
+                router.push(data.route as any);
+            } else if (data?.type === 'booking_accepted') {
                 router.push('/(borrower)/track' as any);
             }
         });

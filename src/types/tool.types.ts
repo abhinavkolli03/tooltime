@@ -25,5 +25,8 @@ export interface Tool {
     isAvailable: boolean;
     rating: number;             // avg rating 0–5
     rentalCount: number;
+    specs: string[];
+    marketRetailPrice: number;   // cents
+    deliveryFee: number;         // cents
     createdAt: Timestamp;
 }

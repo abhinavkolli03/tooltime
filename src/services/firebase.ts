@@ -22,9 +22,19 @@ const db = getFirestore(app);
 import { getAuth } from 'firebase/auth';
 
 // Use React Native AsyncStorage for persistent auth manually
-const auth = getAuth(app) || initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage)
-});
+let auth: any;
+try {
+    auth = initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage)
+    });
+} catch (e: any) {
+    if (e.code === 'auth/already-initialized') {
+        auth = getAuth(app);
+    } else {
+        console.error(e);
+        auth = getAuth(app); // fallback
+    }
+}
 
 const storage = getStorage(app);
 

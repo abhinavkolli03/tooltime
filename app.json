@@ -10,9 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "config": {
-        "googleMapsApiKey": "AIzaSyDUE1T1yIOd4Ch8XJc27gwfYI3dJ2yWQKo"
-      },
+      "config": {},
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
@@ -27,11 +25,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDUE1T1yIOd4Ch8XJc27gwfYI3dJ2yWQKo"
-        }
-      },
+      "config": {},
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },

@@ -92,9 +92,8 @@ export default function BookingModal() {
             // 2. Handle Mock Payment for Demo (since we are on Spark plan without Cloud Functions)
             if (depositClientSecret.startsWith('pi_mock')) {
                 console.log('Demo Mode: Simulating PaymentSheet...');
-                await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate processing
-                // Success!
-                router.replace('/(borrower)/track');
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                router.replace('/(borrower)/rentals');
                 return;
             }
 
@@ -128,8 +127,7 @@ export default function BookingModal() {
                 return;
             }
 
-            // Success!
-            router.replace('/(borrower)/track');
+            router.replace('/(borrower)/rentals');
         } catch (error: any) {
             Alert.alert('Booking Error', error.message);
         } finally {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { collection, query, where, orderBy, startAt, endAt, getDocs } from 'firebase/firestore';
-import { db } from '@/services/firebase';
+import { collection, query, orderBy, startAt, endAt, getDocs } from 'firebase/firestore';
+import { db, auth } from '@/services/firebase';
 import { getQueryBounds, getDistanceKm } from '@/services/geo';
 import { Tool } from '@/types/tool.types';
 
@@ -8,18 +8,16 @@ export interface ToolWithDistance extends Tool {
     distanceKm: number;
 }
 
-export const useNearbyTools = (centerLat: number | null, centerLng: number | null, radiusKm: number = 2) => {
+export const useNearbyTools = (centerLat: number | null, centerLng: number | null, radiusKm: number = 5) => {
     const [tools, setTools] = useState<ToolWithDistance[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
-    // Cache to avoid tiny movements triggering queries
     const lastQueryLocation = useRef<{ lat: number, lng: number } | null>(null);
     const cachedTools = useRef<ToolWithDistance[]>([]);
 
     useEffect(() => {
         if (centerLat === null || centerLng === null) return;
 
-        // Only re-query if moved more than 0.1km (100m)
         if (lastQueryLocation.current) {
             const distanceMoved = getDistanceKm(
                 centerLat, centerLng,
@@ -34,12 +32,11 @@ export const useNearbyTools = (centerLat: number | null, centerLng: number | nul
         const fetchNearbyTools = async () => {
             setIsLoading(true);
             try {
+                const currentUserId = auth.currentUser?.uid;
                 const bounds = getQueryBounds(centerLat, centerLng, radiusKm);
                 const promises = bounds.map(bound => {
                     const q = query(
                         collection(db, 'tools'),
-                        // We filter isAvailable in memory to avoid index requirements for now, 
-                        // unless we want to commit to managing indexes for every combination.
                         orderBy('geohash'),
                         startAt(bound[0]),
                         endAt(bound[1])
@@ -56,15 +53,19 @@ export const useNearbyTools = (centerLat: number | null, centerLng: number | nul
                     });
                 });
 
-                // De-duplicate by ID
                 const uniqueTools = Array.from(new Map(allDocs.map(item => [item.id, item])).values());
 
-                // Filter by availability, exact distance and sort
                 const filteredTools: ToolWithDistance[] = uniqueTools
                     .filter(tool => tool.isAvailable === true)
+                    .filter(tool => tool.lenderId !== currentUserId)
                     .map(tool => ({
                         ...tool,
-                        distanceKm: getDistanceKm(tool.lat, tool.lng, centerLat, centerLng)
+                        rating: tool.rating ?? 0,
+                        rentalCount: tool.rentalCount ?? 0,
+                        description: tool.description || '',
+                        specs: tool.specs || [],
+                        photoUrls: tool.photoUrls?.length ? tool.photoUrls : ['https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800&fit=crop'],
+                        distanceKm: getDistanceKm(tool.lat, tool.lng, centerLat, centerLng),
                     }))
                     .filter(tool => tool.distanceKm <= radiusKm)
                     .sort((a, b) => a.distanceKm - b.distanceKm);

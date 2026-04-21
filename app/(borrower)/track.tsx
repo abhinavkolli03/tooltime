@@ -1,9 +1,9 @@
 import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking, ActivityIndicator, Dimensions, Platform } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { Image } from 'expo-image';
 import { doc, getDoc } from 'firebase/firestore';
@@ -14,20 +14,24 @@ import { useLenderLocation } from '@/hooks/useLenderLocation';
 import { COLORS } from '@/constants/theme';
 import { UserProfile } from '@/types/user.types';
 import { Tool } from '@/types/tool.types';
+import { findOrCreateDirectThread } from '@/services/messageService';
 
 const { width, height } = Dimensions.get('window');
 
-const MAP_STYLE = [
-    { "elementType": "geometry", "stylers": [{ "color": "#f5f0e8" }] },
-    { "elementType": "labels.text.fill", "stylers": [{ "color": "#6b4226" }] },
-    { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#ffffff" }] },
-    { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#c8b89a" }] }
-];
 
 export default function TrackScreen() {
     const insets = useSafeAreaInsets();
-    const { activeBooking, isLoading: isBookingLoading } = useBookingStore();
-    const { lenderLocation, status, etaMinutes } = useLenderLocation(activeBooking?.id);
+    const { bookingId } = useLocalSearchParams<{ bookingId?: string }>();
+    const { activeBooking, getBookingById, isLoading: isBookingLoading } = useBookingStore();
+
+    const booking = bookingId ? getBookingById(bookingId) : activeBooking;
+
+    useEffect(() => {
+        if (booking && bookingId) {
+            router.replace({ pathname: '/modals/borrower-tracking', params: { bookingId: booking.id } });
+        }
+    }, [booking, bookingId]);
+    const { lenderLocation, status, etaMinutes } = useLenderLocation(booking?.id);
 
     const [lender, setLender] = useState<UserProfile | null>(null);
     const [tool, setTool] = useState<Tool | null>(null);
@@ -38,11 +42,11 @@ export default function TrackScreen() {
 
     useEffect(() => {
         const fetchDetails = async () => {
-            if (!activeBooking) return;
+            if (!booking) return;
             try {
                 const [lenderDoc, toolDoc] = await Promise.all([
-                    getDoc(doc(db, 'users', activeBooking.lenderId)),
-                    getDoc(doc(db, 'tools', activeBooking.toolId))
+                    getDoc(doc(db, 'users', booking.lenderId)),
+                    getDoc(doc(db, 'tools', booking.toolId))
                 ]);
 
                 if (lenderDoc.exists()) setLender(lenderDoc.data() as UserProfile);
@@ -55,13 +59,13 @@ export default function TrackScreen() {
         };
 
         fetchDetails();
-    }, [activeBooking]);
+    }, [booking]);
 
     useEffect(() => {
-        if (lenderLocation && activeBooking?.borrowerLat && mapRef.current) {
+        if (lenderLocation && booking?.borrowerLat && mapRef.current) {
             mapRef.current.fitToCoordinates([
                 { latitude: lenderLocation.lat, longitude: lenderLocation.lng },
-                { latitude: activeBooking.borrowerLat, longitude: activeBooking.borrowerLng }
+                { latitude: booking.borrowerLat, longitude: booking.borrowerLng }
             ], {
                 edgePadding: { top: 180, right: 80, bottom: 350, left: 80 },
                 animated: true
@@ -69,15 +73,36 @@ export default function TrackScreen() {
         }
     }, [lenderLocation]);
 
-    if (isBookingLoading || (activeBooking && isLoadingDetails)) {
+    if (isBookingLoading || (booking && isLoadingDetails)) {
         return (
             <View style={styles.centered}>
-                <ActivityIndicator size="large" color="#FF7F50" />
+                <ActivityIndicator size="large" color={COLORS.accent.primary} />
             </View>
         );
     }
 
-    if (!activeBooking) return null;
+    if (!booking) {
+        return (
+            <SafeAreaView style={styles.emptyContainer}>
+                <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+                    <Ionicons name="arrow-back" size={24} color="#1C1410" />
+                </TouchableOpacity>
+                <View style={styles.emptyContent}>
+                    <Ionicons name="navigate-circle-outline" size={64} color="#EDE4D4" />
+                    <Text style={styles.emptyTitle}>No Active Delivery</Text>
+                    <Text style={styles.emptySubtitle}>
+                        When a lender is on their way, you'll track them here in real-time.
+                    </Text>
+                    <TouchableOpacity
+                        style={styles.browseButton}
+                        onPress={() => router.push('/(borrower)/discover')}
+                    >
+                        <Text style={styles.browseButtonText}>Browse Tools</Text>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     const lenderFirstName = lender?.displayName.split(' ')[0] || 'Lender';
 
@@ -99,21 +124,22 @@ export default function TrackScreen() {
 
             <MapView
                 ref={mapRef}
-                provider={PROVIDER_GOOGLE}
                 style={styles.map}
-                customMapStyle={MAP_STYLE}
                 initialRegion={{
-                    latitude: activeBooking.borrowerLat,
-                    longitude: activeBooking.borrowerLng,
+                    latitude: booking.borrowerLat,
+                    longitude: booking.borrowerLng,
                     latitudeDelta: 0.02,
                     longitudeDelta: 0.02,
                 }}
+                showsUserLocation={true}
+                showsMyLocationButton={false}
+                showsCompass={false}
             >
                 {/* Borrower Marker (Your House) */}
                 <Marker
                     coordinate={{
-                        latitude: activeBooking.borrowerLat,
-                        longitude: activeBooking.borrowerLng
+                        latitude: booking.borrowerLat,
+                        longitude: booking.borrowerLng
                     }}
                 >
                     <View style={styles.houseMarker}>
@@ -142,10 +168,10 @@ export default function TrackScreen() {
                 {lenderLocation && (
                     <Polyline
                         coordinates={[
-                            { latitude: activeBooking.borrowerLat, longitude: activeBooking.borrowerLng },
+                            { latitude: booking.borrowerLat, longitude: booking.borrowerLng },
                             { latitude: lenderLocation.lat, longitude: lenderLocation.lng }
                         ]}
-                        strokeColor="#FF7F50"
+                        strokeColor={COLORS.accent.primary}
                         strokeWidth={4}
                         lineDashPattern={[5, 10]}
                     />
@@ -154,7 +180,7 @@ export default function TrackScreen() {
 
             {/* Distance Badge on Map */}
             <View style={[styles.distanceBadge, { top: insets.top + 140 }]}>
-                <MaterialCommunityIcons name="navigation-variant" size={16} color="#FF7F50" style={{ transform: [{ rotate: '45deg' }] }} />
+                <MaterialCommunityIcons name="navigation-variant" size={16} color={COLORS.accent.primary} style={{ transform: [{ rotate: '45deg' }] }} />
                 <Text style={styles.distanceText}>0.4 mi left</Text>
             </View>
 
@@ -164,7 +190,7 @@ export default function TrackScreen() {
                     if (lenderLocation) {
                         mapRef.current?.fitToCoordinates([
                             { latitude: lenderLocation.lat, longitude: lenderLocation.lng },
-                            { latitude: activeBooking.borrowerLat, longitude: activeBooking.borrowerLng }
+                            { latitude: booking.borrowerLat, longitude: booking.borrowerLng }
                         ], {
                             edgePadding: { top: 180, right: 80, bottom: 350, left: 80 },
                             animated: true
@@ -208,7 +234,28 @@ export default function TrackScreen() {
                             </View>
                         </View>
                         <View style={styles.headerActions}>
-                            <TouchableOpacity style={styles.msgBtn} onPress={() => router.push('/(borrower)/messages')}>
+                            <TouchableOpacity style={styles.msgBtn} onPress={async () => {
+                                if (!booking || !tool) return;
+                                try {
+                                    const { threadId } = await findOrCreateDirectThread({
+                                        otherUserId: booking.lenderId,
+                                        toolId: booking.toolId,
+                                        toolName: tool.name,
+                                        role: 'borrower',
+                                    });
+                                    router.push({
+                                        pathname: '/modals/chat',
+                                        params: {
+                                            threadId,
+                                            otherName: lender?.displayName || 'Lender',
+                                            otherAvatar: lender?.avatarUrl || '',
+                                            toolName: tool.name,
+                                        },
+                                    });
+                                } catch {
+                                    router.push('/(borrower)/messages');
+                                }
+                            }}>
                                 <Ionicons name="chatbubble-ellipses-outline" size={22} color="#1C1410" />
                             </TouchableOpacity>
                             <TouchableOpacity style={styles.callBtn} onPress={() => Linking.openURL(`tel:${lender?.phoneNumber}`)}>
@@ -274,12 +321,59 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    emptyContainer: {
+        flex: 1,
+        backgroundColor: '#F5F0E8',
+    },
+    backBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#FFFFFF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 8,
+        marginLeft: 16,
+    },
+    emptyContent: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 40,
+        paddingBottom: 80,
+    },
+    emptyTitle: {
+        fontFamily: 'DMSerifDisplay-Regular',
+        fontSize: 24,
+        color: '#1C1410',
+        marginTop: 16,
+        marginBottom: 8,
+    },
+    emptySubtitle: {
+        fontFamily: 'DMSans-Regular',
+        fontSize: 15,
+        color: '#9A8070',
+        textAlign: 'center',
+        lineHeight: 22,
+        marginBottom: 28,
+    },
+    browseButton: {
+        backgroundColor: '#C4622A',
+        paddingHorizontal: 28,
+        paddingVertical: 14,
+        borderRadius: 16,
+    },
+    browseButtonText: {
+        fontFamily: 'DMSans-Medium',
+        fontSize: 16,
+        color: '#FFFFFF',
+    },
     topBanner: {
         position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
-        backgroundColor: '#FF7F50',
+        backgroundColor: COLORS.accent.primary,
         paddingHorizontal: 20,
         paddingBottom: 20,
         borderBottomLeftRadius: 32,
@@ -349,7 +443,7 @@ const styles = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: '#FF7F50',
+        backgroundColor: COLORS.accent.primary,
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 2,
@@ -477,7 +571,7 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 24,
-        backgroundColor: '#FF7F50',
+        backgroundColor: COLORS.accent.primary,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -512,7 +606,7 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
     enRouteBadge: {
-        backgroundColor: '#FFF1EB',
+        backgroundColor: 'rgba(196, 98, 42, 0.08)',
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 12,
@@ -520,7 +614,7 @@ const styles = StyleSheet.create({
     enRouteText: {
         fontFamily: 'DMSans-Bold',
         fontSize: 12,
-        color: '#FF7F50',
+        color: COLORS.accent.primary,
     },
     timelineContainer: {
         position: 'relative',
@@ -552,16 +646,16 @@ const styles = StyleSheet.create({
         zIndex: 2,
     },
     stepCircleActive: {
-        backgroundColor: '#FF7F50',
+        backgroundColor: COLORS.accent.primary,
         borderWidth: 4,
-        borderColor: '#FFF1EB',
+        borderColor: 'rgba(196, 98, 42, 0.08)',
         width: 34,
         height: 34,
         borderRadius: 17,
         marginTop: -2,
     },
     stepCircleCompleted: {
-        backgroundColor: '#FF7F50',
+        backgroundColor: COLORS.accent.primary,
     },
     stepLabelText: {
         fontFamily: 'DMSans-Bold',

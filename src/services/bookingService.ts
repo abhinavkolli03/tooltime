@@ -8,6 +8,7 @@ import {
     getDoc,
     increment
 } from 'firebase/firestore';
+import { createThreadForBooking } from './messageService';
 
 export interface BookingResponse {
     bookingId: string;
@@ -59,30 +60,18 @@ export const clientCreateBooking = async (params: {
         updatedAt: serverTimestamp(),
     });
 
-    // DEMO AUTO-ACCEPT: Simulate lender accepting after 5 seconds
-    setTimeout(async () => {
-        try {
-            await updateDoc(bookingRef, {
-                status: 'accepted',
-                acceptedAt: serverTimestamp(),
-                lenderLat: 30.2711, // Mock lender starting position
-                lenderLng: -97.7431,
-                updatedAt: serverTimestamp(),
-            });
-            console.log('Demo: Booking auto-accepted');
-
-            // Move to en_route after another 5 seconds to show movement
-            setTimeout(async () => {
-                await updateDoc(bookingRef, {
-                    status: 'en_route',
-                    lenderLat: 30.2690,
-                    updatedAt: serverTimestamp(),
-                });
-            }, 5000);
-        } catch (e) {
-            console.error('Auto-accept error:', e);
-        }
-    }, 5000);
+    // Auto-create a messaging thread for this booking
+    try {
+        await createThreadForBooking({
+            bookingId: bookingRef.id,
+            borrowerId: user.uid,
+            lenderId: tool.lenderId,
+            toolId: params.toolId,
+            toolName: tool.name || 'Tool',
+        });
+    } catch (e) {
+        console.error('Failed to create message thread:', e);
+    }
 
     return {
         bookingId: bookingRef.id,

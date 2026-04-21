@@ -12,6 +12,7 @@ import { COLORS } from '@/constants/theme';
 import { Booking, BookingStatus } from '@/types/booking.types';
 import { Tool } from '@/types/tool.types';
 import { updateDoc } from 'firebase/firestore';
+import { findOrCreateDirectThread } from '@/services/messageService';
 
 type BookingWithTool = Booking & { tool?: Tool; lenderName?: string };
 
@@ -77,6 +78,29 @@ export default function ActivityScreen() {
         );
     };
 
+    const handleMessage = async (booking: BookingWithTool) => {
+        if (!booking.tool?.name) return;
+        try {
+            const { threadId } = await findOrCreateDirectThread({
+                otherUserId: booking.lenderId,
+                toolId: booking.toolId,
+                toolName: booking.tool.name,
+                role: 'borrower',
+            });
+            router.push({
+                pathname: '/modals/chat',
+                params: {
+                    threadId,
+                    otherName: booking.lenderName || 'Lender',
+                    toolName: booking.tool.name,
+                },
+            });
+        } catch (e) {
+            console.error('Error opening chat:', e);
+            router.push('/modals/new-message');
+        }
+    };
+
     const filteredBookings = useMemo(() => {
         if (activeTab === 'active') {
             return bookings.filter(b => !['completed', 'cancelled'].includes(b.status));
@@ -100,7 +124,10 @@ export default function ActivityScreen() {
                 onPress={() => {
                     const isActive = ['pending', 'accepted', 'en_route', 'delivered', 'active'].includes(item.status);
                     if (isActive) {
-                        router.push('/(borrower)/track');
+                        router.push({
+                            pathname: '/modals/borrower-tracking',
+                            params: { bookingId: item.id }
+                        });
                     } else if (item.tool?.id) {
                         router.push({
                             pathname: '/(borrower)/tool/[toolId]',
@@ -111,7 +138,7 @@ export default function ActivityScreen() {
             >
                 <View style={styles.cardHeader}>
                     <Image
-                        source={{ uri: item.tool?.photoUrls?.[0] }}
+                        source={{ uri: item.tool?.photoUrls?.[0] || 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800&fit=crop' }}
                         style={styles.toolThumb}
                         contentFit="cover"
                         transition={200}
@@ -120,6 +147,15 @@ export default function ActivityScreen() {
                         <Text style={styles.toolName}>{item.tool?.name || 'Tool'}</Text>
                         <Text style={styles.lenderText}>from {item.lenderName || 'Lender'}</Text>
                     </View>
+                    {!['completed', 'cancelled'].includes(item.status) && (
+                        <TouchableOpacity
+                            style={styles.cardMsgBtn}
+                            onPress={(e) => { e.stopPropagation(); handleMessage(item); }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Ionicons name="chatbubble-ellipses-outline" size={18} color={COLORS.accent.primary} />
+                        </TouchableOpacity>
+                    )}
                     <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
                         <Text style={styles.statusText}>{item.status.toUpperCase()}</Text>
                     </View>
@@ -171,7 +207,10 @@ export default function ActivityScreen() {
                             </Text>
                             <TouchableOpacity
                                 style={styles.trackBtn}
-                                onPress={() => router.push('/(borrower)/track')}
+                                onPress={() => router.push({
+                                    pathname: '/modals/borrower-tracking',
+                                    params: { bookingId: booking.id }
+                                })}
                             >
                                 <Ionicons name="navigate-outline" size={16} color="#FFF" />
                                 <Text style={styles.trackBtnText}>Track</Text>
@@ -186,7 +225,7 @@ export default function ActivityScreen() {
                             <Ionicons name="alert-circle" size={20} color={COLORS.accent.primary} />
                             <Text style={styles.noticeText}>Lender has arrived! Confirm handover to start.</Text>
                         </View>
-                        <TouchableOpacity style={styles.primaryActionBtn}>
+                        <TouchableOpacity style={styles.primaryActionBtn} onPress={() => Alert.alert('Handover Confirmed', 'Your rental is now active. Enjoy your tool!')}>
                             <Text style={styles.primaryActionText}>Confirm Handover</Text>
                         </TouchableOpacity>
                     </View>
@@ -199,7 +238,7 @@ export default function ActivityScreen() {
                                 <Text style={styles.usageLabel}>Time Remaining</Text>
                                 <Text style={styles.usageValue}>2h 15m</Text>
                             </View>
-                            <TouchableOpacity style={styles.returnBtn}>
+                            <TouchableOpacity style={styles.returnBtn} onPress={() => Alert.alert('Return Initiated', 'The lender has been notified. Please prepare the tool for pickup.')}>
                                 <Text style={styles.returnBtnText}>Initiate Return</Text>
                             </TouchableOpacity>
                         </View>
@@ -217,7 +256,16 @@ export default function ActivityScreen() {
                                 <Text style={styles.historyLabel}>Total Paid</Text>
                                 <Text style={styles.historyValue}>${((booking.totalCharged ?? 0) / 100).toFixed(2)}</Text>
                             </View>
-                            <TouchableOpacity style={styles.reviewBtn}>
+                            <TouchableOpacity
+                                style={styles.reviewBtn}
+                                onPress={() => router.push({
+                                    pathname: '/modals/review',
+                                    params: {
+                                        bookingId: booking.id,
+                                        toolName: booking.tool?.name || 'Tool'
+                                    }
+                                })}
+                            >
                                 <Text style={styles.reviewBtnText}>Review</Text>
                             </TouchableOpacity>
                         </View>
@@ -239,7 +287,7 @@ export default function ActivityScreen() {
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.header}>
-                <Text style={styles.title}>Activity</Text>
+                <Text style={styles.title}>Rentals</Text>
                 <View style={styles.tabBar}>
                     {(['active', 'history'] as const).map(tab => (
                         <TouchableOpacity
@@ -400,6 +448,15 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#9A8070',
         marginTop: 2,
+    },
+    cardMsgBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#FFF5ED',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 8,
     },
     statusBadge: {
         paddingHorizontal: 8,

@@ -41,7 +41,7 @@ export default function ToolPin({ tool, isSelected = false, onPress }: ToolPinPr
                     color={COLORS.accent.primary}
                 />
                 <Text style={styles.priceText}>
-                    ${(tool.hourlyRate / 100).toFixed(0)}/hr
+                    ${((tool.hourlyRate ?? 0) / 100).toFixed(0)}/hr
                 </Text>
             </View>
         </Marker>

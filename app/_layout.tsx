@@ -123,11 +123,17 @@ export default function RootLayout() {
       <StripeProvider publishableKey="pk_test_51P9Y3fRs97u7U9f8Y7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7X7" merchantIdentifier="com.tooltime.app">
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-          <Stack.Screen name="(borrower)" options={{ headerShown: false }} />
-          <Stack.Screen name="(lender)" options={{ headerShown: false }} />
+          <Stack.Screen name="(borrower)" options={{ headerShown: false, animation: 'fade', animationDuration: 200 }} />
+          <Stack.Screen name="(lender)" options={{ headerShown: false, animation: 'fade', animationDuration: 200 }} />
           <Stack.Screen name="modals/booking" options={{ presentation: 'modal' }} />
           <Stack.Screen name="modals/handover" options={{ presentation: 'modal' }} />
           <Stack.Screen name="modals/return" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="modals/review" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="modals/list-tool" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="modals/chat" options={{ presentation: 'modal', headerShown: false, animation: 'slide_from_right' }} />
+          <Stack.Screen name="modals/new-message" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="modals/lender-delivery" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="modals/borrower-tracking" options={{ presentation: 'modal' }} />
         </Stack>
       </StripeProvider>
     </GestureHandlerRootView>

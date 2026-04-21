@@ -4,13 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '@/constants/theme';
 import TabbedMessagesList from '@/components/messages/TabbedMessagesList';
 
-export default function MessagesScreen() {
+export default function LenderMessagesScreen() {
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.header}>
                 <Text style={styles.title}>Messages</Text>
             </View>
-            <TabbedMessagesList defaultTab="borrowing" />
+            <TabbedMessagesList defaultTab="lending" />
         </SafeAreaView>
     );
 }

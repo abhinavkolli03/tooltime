@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -114,7 +114,7 @@ export default function EarningsScreen() {
             <View style={styles.stripeContainer}>
                 <TouchableOpacity
                     style={styles.stripeBtn}
-                    onPress={() => Linking.openURL('https://dashboard.stripe.com')}
+                    onPress={() => Alert.alert('Stripe Dashboard', 'Stripe integration is in test mode. Full payout dashboard coming soon!')}
                 >
                     <Ionicons name="open-outline" size={18} color={COLORS.accent.primary} />
                     <Text style={styles.stripeBtnText}>Open Stripe Dashboard</Text>

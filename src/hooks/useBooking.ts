@@ -7,11 +7,11 @@ import { Booking } from '@/types/booking.types';
 
 export const useBooking = () => {
     const { user } = useAuthStore();
-    const { setActiveBooking, setIsLoading } = useBookingStore();
+    const { setActiveBookings, setIsLoading } = useBookingStore();
 
     useEffect(() => {
         if (!user) {
-            setActiveBooking(null);
+            setActiveBookings([]);
             setIsLoading(false);
             return;
         }
@@ -29,11 +29,7 @@ export const useBooking = () => {
                 .map(doc => ({ id: doc.id, ...doc.data() } as Booking))
                 .filter(b => !['completed', 'cancelled', 'disputed'].includes(b.status));
 
-            if (activeBookings.length === 0) {
-                setActiveBooking(null);
-            } else {
-                setActiveBooking(activeBookings[0]);
-            }
+            setActiveBookings(activeBookings);
             setIsLoading(false);
         }, (error) => {
             console.error('Error listening to active bookings:', error);

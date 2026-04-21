@@ -1,26 +1,39 @@
-import React, { useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, ActivityIndicator, Alert } from 'react-native';
+import React, { useMemo, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
 import { useAuthStore } from '@/store/authStore';
-import { useIncomingRequests, RequestWithDetails } from '@/hooks/useIncomingRequests';
+import { useIncomingRequests } from '@/hooks/useIncomingRequests';
 import { useMyListings } from '@/hooks/useMyListings';
 import { COLORS } from '@/constants/theme';
-import { acceptBooking, declineBooking } from '@/services/cloudFunctions';
 import { seedLenderData } from '@/services/seedLenderData';
-import { Tool } from '@/types/tool.types';
+import BorrowerDiscoverSkeleton from '@/components/skeletons/BorrowerDiscoverSkeleton';
+import LenderDashboardSkeleton from '@/components/skeletons/LenderDashboardSkeleton';
 
 export default function LenderDashboard() {
-    const { profile } = useAuthStore();
+    const { profile, setRole } = useAuthStore();
     const { requests, allBookings, isLoading: reqLoading } = useIncomingRequests();
     const { listings, isLoading: listLoading } = useMyListings();
+    const [showBorrowerTransition, setShowBorrowerTransition] = useState(false);
 
     // Seed demo data for lender on first visit
     useEffect(() => {
-        seedLenderData();
+        const checkSeed = async () => {
+            try {
+                const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+                const seeded = await AsyncStorage.getItem('tooltime_lender_seeded');
+                if (!seeded) {
+                    await seedLenderData();
+                    await AsyncStorage.setItem('tooltime_lender_seeded', 'true');
+                }
+            } catch (e) {
+                seedLenderData();
+            }
+        };
+        checkSeed();
     }, []);
 
     const firstName = profile?.displayName?.split(' ')[0] || 'there';
@@ -44,33 +57,45 @@ export default function LenderDashboard() {
         return completedThisMonth.reduce((sum, b) => sum + (b.rentalFee || 0) - (b.platformFee || 0), 0);
     }, [completedThisMonth]);
 
-    const handleAccept = async (bookingId: string) => {
-        try {
-            await acceptBooking({ bookingId });
-        } catch (e: any) {
-            Alert.alert('Error', e.message);
-        }
-    };
-
-    const handleDecline = async (bookingId: string) => {
-        Alert.alert('Decline Request', 'Are you sure you want to decline this request?', [
-            { text: 'No', style: 'cancel' },
-            {
-                text: 'Yes, Decline', style: 'destructive', onPress: async () => {
-                    try { await declineBooking({ bookingId }); } catch (e: any) { Alert.alert('Error', e.message); }
-                }
-            }
-        ]);
-    };
-
     const formatCents = (c: number) => `$${(c / 100).toFixed(0)}`;
 
+    useEffect(() => {
+        if (showBorrowerTransition) {
+            const frame = requestAnimationFrame(() => {
+                setRole('borrower');
+                router.replace('/(borrower)/discover');
+            });
+            return () => cancelAnimationFrame(frame);
+        }
+    }, [showBorrowerTransition]);
+
+    if (showBorrowerTransition) {
+        return <BorrowerDiscoverSkeleton />;
+    }
+
     if (reqLoading && listLoading) {
-        return <View style={styles.centered}><ActivityIndicator size="large" color={COLORS.accent.primary} /></View>;
+        return <LenderDashboardSkeleton />;
     }
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
+            {/* Toggle Pill - Fixed at top */}
+            <View style={styles.topToggleContainer}>
+                <View style={styles.togglePill}>
+                    <TouchableOpacity
+                        style={styles.toggleSide}
+                        onPress={() => setShowBorrowerTransition(true)}
+                    >
+                        <Text style={styles.toggleInactiveText}>Borrow</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.toggleSide, styles.toggleActive]}
+                    >
+                        <Text style={styles.toggleActiveText}>Lend</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -81,7 +106,7 @@ export default function LenderDashboard() {
                             <Text style={styles.name}>{firstName}</Text>
                         </View>
                     </View>
-                    <TouchableOpacity style={styles.notifBtn}>
+                    <TouchableOpacity style={styles.notifBtn} onPress={() => Alert.alert('Notifications', 'Notification center coming soon!')}>
                         <Ionicons name="notifications-outline" size={24} color={COLORS.text.primary} />
                         {requests.length > 0 && <View style={styles.notifDot} />}
                     </TouchableOpacity>
@@ -103,88 +128,83 @@ export default function LenderDashboard() {
                     </View>
                 </View>
 
-                {/* Active Delivery Banner */}
-                {activeRentals.length > 0 && (
-                    <TouchableOpacity style={styles.deliveryBanner}>
-                        <View style={styles.deliveryLeft}>
-                            <View style={styles.deliveryDot} />
-                            <View>
-                                <Text style={styles.deliveryStatus}>
-                                    {activeRentals[0].status === 'en_route' ? 'IN TRANSIT' :
-                                        activeRentals[0].status === 'accepted' ? 'PREPARING' :
-                                            activeRentals[0].status === 'active' ? 'RENTED OUT' : 'DELIVERED'}
-                                </Text>
-                                <Text style={styles.deliveryText} numberOfLines={1}>
-                                    {activeRentals[0].tool?.name || 'Tool'} to {activeRentals[0].borrowerProfile?.displayName || 'Borrower'}
-                                </Text>
+                {/* Active Deliveries */}
+                {activeRentals.length > 0 && activeRentals.map((rental) => {
+                    const statusLabel =
+                        rental.status === 'en_route' ? 'IN TRANSIT' :
+                        rental.status === 'accepted' ? 'PREPARING' :
+                        rental.status === 'active' ? 'RENTED OUT' : 'DELIVERED';
+                    const needsAction = rental.status === 'accepted' || rental.status === 'en_route';
+                    return (
+                        <TouchableOpacity
+                            key={rental.id}
+                            style={[styles.deliveryBanner, needsAction && styles.deliveryBannerUrgent]}
+                            onPress={() => router.push({ pathname: '/modals/lender-delivery', params: { bookingId: rental.id } })}
+                        >
+                            <View style={styles.deliveryLeft}>
+                                <Image
+                                    source={{ uri: rental.tool?.photoUrls?.[0] || 'https://via.placeholder.com/40' }}
+                                    style={styles.deliveryThumb}
+                                />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.deliveryStatus}>{statusLabel}</Text>
+                                    <Text style={styles.deliveryText} numberOfLines={1}>
+                                        {rental.tool?.name || 'Tool'} to {rental.borrowerProfile?.displayName || 'Borrower'}
+                                    </Text>
+                                </View>
                             </View>
-                        </View>
-                        <Ionicons name="chevron-forward" size={20} color="#9A8070" />
-                    </TouchableOpacity>
-                )}
-
-                {/* Pending Requests */}
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Pending Requests</Text>
-                    {requests.length > 0 && (
-                        <TouchableOpacity onPress={() => router.push('/(lender)/requests')}>
-                            <Text style={styles.viewAll}>View all</Text>
+                            {needsAction && (
+                                <View style={styles.deliveryActionHint}>
+                                    <Text style={styles.deliveryActionText}>Action needed</Text>
+                                </View>
+                            )}
+                            <Ionicons name="chevron-forward" size={20} color="#9A8070" />
                         </TouchableOpacity>
-                    )}
+                    );
+                })}
+
+                {/* My Tools */}
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>My Tools</Text>
+                    <TouchableOpacity onPress={() => router.push('/(lender)/listings')}>
+                        <View style={styles.manageBtn}>
+                            <Ionicons name="settings-outline" size={16} color={COLORS.accent.primary} />
+                            <Text style={styles.manageBtnText}>Manage All</Text>
+                        </View>
+                    </TouchableOpacity>
                 </View>
 
-                {requests.length === 0 ? (
-                    <View style={styles.emptyCard}>
-                        <Ionicons name="checkmark-circle-outline" size={32} color="#EDE4D4" />
-                        <Text style={styles.emptyText}>No pending requests — you're all caught up!</Text>
+                {listings.length === 0 ? (
+                    <View style={styles.emptyListings}>
+                        <Ionicons name="construct-outline" size={48} color="#EDE4D4" />
+                        <Text style={styles.emptyListingsTitle}>No tools listed yet</Text>
+                        <Text style={styles.emptyListingsText}>Start earning by listing your first tool</Text>
+                        <TouchableOpacity
+                            style={styles.listToolBtn}
+                            onPress={() => router.push('/modals/list-tool')}
+                        >
+                            <Ionicons name="add" size={20} color="#FFFFFF" />
+                            <Text style={styles.listToolBtnText}>List Your First Tool</Text>
+                        </TouchableOpacity>
                     </View>
                 ) : (
-                    requests.slice(0, 3).map((req) => (
-                        <View key={req.id} style={styles.requestCard}>
-                            <View style={styles.reqHeader}>
-                                <Image source={{ uri: req.borrowerProfile?.avatarUrl || 'https://i.pravatar.cc/150' }} style={styles.reqAvatar} />
-                                <View style={{ flex: 1, marginLeft: 12 }}>
-                                    <Text style={styles.reqName}>{req.borrowerProfile?.displayName || 'Borrower'}</Text>
-                                    <Text style={styles.reqDetail}>{req.tool?.name || 'Tool'} • {req.durationHours}h</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 24, gap: 16, paddingRight: 24 }}>
+                        {listings.map((tool) => (
+                            <View key={tool.id} style={styles.listingCard}>
+                                <Image source={{ uri: tool.photoUrls?.[0] }} style={styles.listingImg} contentFit="cover" />
+                                <View style={[styles.availBadge, { backgroundColor: tool.isAvailable ? '#5A7A4A' : COLORS.accent.primary }]}>
+                                    <Text style={styles.availText}>{tool.isAvailable ? 'AVAILABLE' : 'RENTED'}</Text>
                                 </View>
-                                <Text style={styles.reqPayout}>{formatCents((req.rentalFee || 0) - (req.platformFee || 0))}</Text>
+                                <Text style={styles.listingName} numberOfLines={1}>{tool.name}</Text>
+                                <Text style={styles.listingPrice}>{formatCents(tool.dailyRate)} / day</Text>
                             </View>
-                            <View style={styles.reqActions}>
-                                <TouchableOpacity style={styles.declineBtn} onPress={() => handleDecline(req.id)}>
-                                    <Text style={styles.declineBtnText}>Decline</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.acceptBtn} onPress={() => handleAccept(req.id)}>
-                                    <Text style={styles.acceptBtnText}>Accept</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    ))
+                        ))}
+                    </ScrollView>
                 )}
-
-                {/* My Listings */}
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>My Listings</Text>
-                    <TouchableOpacity onPress={() => router.push('/(lender)/listings')}>
-                        <Text style={styles.viewAll}>Manage</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 24, gap: 16 }}>
-                    {listings.map((tool) => (
-                        <View key={tool.id} style={styles.listingCard}>
-                            <Image source={{ uri: tool.photoUrls?.[0] }} style={styles.listingImg} contentFit="cover" />
-                            <View style={[styles.availBadge, { backgroundColor: tool.isAvailable ? '#5A7A4A' : COLORS.accent.primary }]}>
-                                <Text style={styles.availText}>{tool.isAvailable ? 'AVAILABLE' : 'RENTED'}</Text>
-                            </View>
-                            <Text style={styles.listingName} numberOfLines={1}>{tool.name}</Text>
-                            <Text style={styles.listingPrice}>{formatCents(tool.dailyRate)} / day</Text>
-                        </View>
-                    ))}
-                </ScrollView>
             </ScrollView>
 
             {/* FAB */}
-            <TouchableOpacity style={styles.fab} onPress={() => Alert.alert('Coming Soon', 'List a Tool form is coming soon!')}>
+            <TouchableOpacity style={styles.fab} onPress={() => router.push('/modals/list-tool')}>
                 <Ionicons name="add" size={28} color="#FFFFFF" />
             </TouchableOpacity>
         </SafeAreaView>
@@ -194,6 +214,39 @@ export default function LenderDashboard() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#FFFFFF' },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    topToggleContainer: {
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F5F0E8',
+    },
+    togglePill: {
+        flexDirection: 'row',
+        height: 36,
+        backgroundColor: '#EDE4D4',
+        borderRadius: 18,
+        padding: 2,
+    },
+    toggleSide: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    toggleActive: {
+        backgroundColor: '#C4622A',
+        borderRadius: 14,
+    },
+    toggleActiveText: {
+        color: '#FFFFFF',
+        fontFamily: 'DMSans-Medium',
+        fontSize: 14,
+    },
+    toggleInactiveText: {
+        color: '#9A8070',
+        fontFamily: 'DMSans-Medium',
+        fontSize: 14,
+    },
     header: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20,
@@ -213,44 +266,44 @@ const styles = StyleSheet.create({
     statValue: { fontFamily: 'DMSerifDisplay-Regular', fontSize: 24, color: COLORS.text.primary },
     deliveryBanner: {
         marginHorizontal: 24, backgroundColor: '#FFF9F2', borderRadius: 16,
-        padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        borderWidth: 1, borderColor: '#FACB9B', marginBottom: 28,
+        padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        borderWidth: 1, borderColor: '#FACB9B', marginBottom: 10, gap: 8,
+    },
+    deliveryBannerUrgent: {
+        borderColor: COLORS.accent.primary, borderWidth: 1.5,
     },
     deliveryLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-    deliveryDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.accent.primary },
+    deliveryThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#F5F0E8' },
     deliveryStatus: { fontFamily: 'JetBrainsMono-Regular', fontSize: 10, color: COLORS.accent.primary, fontWeight: '700' },
     deliveryText: { fontFamily: 'DMSans-Medium', fontSize: 14, color: COLORS.text.primary, marginTop: 2 },
+    deliveryActionHint: {
+        backgroundColor: COLORS.accent.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
+    },
+    deliveryActionText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 8, color: '#FFFFFF', letterSpacing: 0.3 },
     sectionHeader: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         paddingHorizontal: 24, marginBottom: 16,
     },
     sectionTitle: { fontFamily: 'DMSerifDisplay-Regular', fontSize: 22, color: COLORS.text.primary },
     viewAll: { fontFamily: 'DMSans-Medium', fontSize: 14, color: COLORS.accent.primary },
-    emptyCard: {
-        marginHorizontal: 24, backgroundColor: '#FAFAFA', borderRadius: 16, padding: 24,
-        alignItems: 'center', gap: 12, marginBottom: 28, borderWidth: 1, borderColor: '#F5F0E8',
+    manageBtn: {
+        flexDirection: 'row', alignItems: 'center', gap: 6,
+        paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10,
+        backgroundColor: '#FFF9F2', borderWidth: 1, borderColor: '#FACB9B',
     },
-    emptyText: { fontFamily: 'DMSans-Regular', fontSize: 14, color: '#9A8070', textAlign: 'center' },
-    requestCard: {
-        marginHorizontal: 24, backgroundColor: '#FFFFFF', borderRadius: 16,
-        padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#F5F0E8',
+    manageBtnText: { fontFamily: 'DMSans-Medium', fontSize: 13, color: COLORS.accent.primary },
+    emptyListings: {
+        marginHorizontal: 24, backgroundColor: '#FAFAFA', borderRadius: 20,
+        padding: 32, alignItems: 'center', marginBottom: 28,
+        borderWidth: 1, borderColor: '#F5F0E8',
     },
-    reqHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-    reqAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F5F0E8' },
-    reqName: { fontFamily: 'DMSans-Medium', fontSize: 15, color: COLORS.text.primary },
-    reqDetail: { fontFamily: 'DMSans-Regular', fontSize: 13, color: '#9A8070', marginTop: 2 },
-    reqPayout: { fontFamily: 'DMSerifDisplay-Regular', fontSize: 20, color: COLORS.accent.primary },
-    reqActions: { flexDirection: 'row', gap: 12 },
-    declineBtn: {
-        flex: 1, height: 40, borderRadius: 12, borderWidth: 1, borderColor: '#E0D4C0',
-        alignItems: 'center', justifyContent: 'center',
+    emptyListingsTitle: { fontFamily: 'DMSans-Medium', fontSize: 16, color: COLORS.text.primary, marginTop: 12 },
+    emptyListingsText: { fontFamily: 'DMSans-Regular', fontSize: 14, color: '#9A8070', marginTop: 4, marginBottom: 16, textAlign: 'center' },
+    listToolBtn: {
+        flexDirection: 'row', alignItems: 'center', gap: 8,
+        backgroundColor: COLORS.accent.primary, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12,
     },
-    declineBtnText: { fontFamily: 'DMSans-Medium', fontSize: 14, color: COLORS.text.primary },
-    acceptBtn: {
-        flex: 1, height: 40, borderRadius: 12, backgroundColor: '#5A7A4A',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    acceptBtnText: { fontFamily: 'DMSans-Medium', fontSize: 14, color: '#FFFFFF' },
+    listToolBtnText: { fontFamily: 'DMSans-Medium', fontSize: 14, color: '#FFFFFF' },
     listingCard: { width: 160, marginBottom: 28 },
     listingImg: { width: 160, height: 130, borderRadius: 16, backgroundColor: '#F5F0E8', marginBottom: 8 },
     availBadge: {

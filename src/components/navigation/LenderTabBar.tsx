@@ -12,9 +12,8 @@ export default function LenderTabBar({ state, descriptors, navigation }: any) {
     const getIcon = (name: string, isFocused: boolean) => {
         switch (name) {
             case 'dashboard': return isFocused ? 'grid' : 'grid-outline';
-            case 'listings': return isFocused ? 'construct' : 'construct-outline';
             case 'requests': return isFocused ? 'mail' : 'mail-outline';
-            case 'earnings': return isFocused ? 'wallet' : 'wallet-outline';
+            case 'messages': return isFocused ? 'chatbubbles' : 'chatbubbles-outline';
             case 'profile': return isFocused ? 'person' : 'person-outline';
             default: return 'help-circle';
         }
@@ -23,9 +22,8 @@ export default function LenderTabBar({ state, descriptors, navigation }: any) {
     const getLabel = (name: string) => {
         switch (name) {
             case 'dashboard': return 'Home';
-            case 'listings': return 'Tools';
             case 'requests': return 'Requests';
-            case 'earnings': return 'Earnings';
+            case 'messages': return 'Messages';
             case 'profile': return 'Profile';
             default: return name;
         }
@@ -33,10 +31,10 @@ export default function LenderTabBar({ state, descriptors, navigation }: any) {
 
     return (
         <View style={[styles.container, { paddingBottom: insets.bottom || 20 }]}>
-            {state.routes.map((route: any, index: number) => {
+            {state.routes.filter((r: any) => r.name !== 'listings' && r.name !== 'earnings').map((route: any, index: number) => {
                 const { options } = descriptors[route.key];
                 const label = getLabel(route.name);
-                const isFocused = state.index === index;
+                const isFocused = state.routes[state.index].name === route.name;
 
                 const onPress = () => {
                     const event = navigation.emit({

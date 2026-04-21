@@ -28,6 +28,8 @@ export interface Booking {
     confirmationCode: string;  // 4-digit string
     borrowerLat: number;
     borrowerLng: number;
+    lenderLat?: number;
+    lenderLng?: number;
     startedAt: Timestamp | null;
     completedAt: Timestamp | null;
     createdAt: Timestamp;

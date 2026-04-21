@@ -16,6 +16,8 @@ import { UserProfile } from '@/types/user.types';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createBooking } from '@/services/cloudFunctions';
+import { useAuthStore } from '@/store/authStore';
+import { getOrCreateThread } from '@/services/messageService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -27,11 +29,14 @@ const DURATION_PRESETS = [
 ];
 
 const MarketPriceComparison = ({ tool, durationHours }: { tool: Tool, durationHours: number }) => {
-    const rentalFee = (durationHours * tool.hourlyRate) / 100;
+    const retailPrice = (tool.marketRetailPrice ?? 0) / 100;
+    if (retailPrice <= 0) return null;
+
+    const rentalFee = (durationHours * (tool.hourlyRate ?? 0)) / 100;
     const deliveryFee = (tool.deliveryFee || 800) / 100;
     const totalRental = rentalFee + deliveryFee;
-    const retailPrice = tool.marketRetailPrice / 100;
     const savings = retailPrice - totalRental;
+    const savingsPercent = Math.round((savings / retailPrice) * 100);
 
     return (
         <View style={styles.comparisonCard}>
@@ -64,7 +69,7 @@ const MarketPriceComparison = ({ tool, durationHours }: { tool: Tool, durationHo
 
             <View style={styles.savingsCallout}>
                 <Ionicons name="checkmark-circle" size={16} color="#5A7A4A" />
-                <Text style={styles.savingsText}>You save ${savings.toFixed(2)} by renting for {durationHours} hrs</Text>
+                <Text style={styles.savingsText}>Save {savingsPercent}% — that's ${savings.toFixed(2)} back in your pocket</Text>
             </View>
         </View>
     );
@@ -74,6 +79,7 @@ export default function ToolDetailsScreen() {
     const { toolId } = useLocalSearchParams();
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const { user } = useAuthStore();
 
     const [tool, setTool] = useState<Tool | null>(null);
     const [lender, setLender] = useState<UserProfile | null>(null);
@@ -134,7 +140,7 @@ export default function ToolDetailsScreen() {
 
     const costBreakdown = useMemo(() => {
         if (!tool) return null;
-        const rentalFee = (durationHours * tool.hourlyRate) / 100;
+        const rentalFee = (durationHours * (tool.hourlyRate ?? 0)) / 100;
         const deliveryFee = (tool.deliveryFee || 800) / 100;
         const platformFee = rentalFee * 0.1;
         const total = rentalFee + deliveryFee + platformFee;
@@ -164,11 +170,10 @@ export default function ToolDetailsScreen() {
                 {/* Hero Area */}
                 <View style={styles.imageContainer}>
                     <Image
-                        source={{ uri: tool.photoUrls?.[0] }}
+                        source={{ uri: tool.photoUrls?.[0] || 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800&fit=crop' }}
                         style={styles.toolImage}
                         contentFit="cover"
                         transition={300}
-                        onError={(error) => console.log('Image error:', error)}
                     />
                     <LinearGradient
                         colors={['transparent', 'rgba(0,0,0,0.25)']}
@@ -181,10 +186,10 @@ export default function ToolDetailsScreen() {
                             <Ionicons name="arrow-back" size={24} color={COLORS.text.primary} />
                         </TouchableOpacity>
                         <View style={{ flexDirection: 'row', gap: 12 }}>
-                            <TouchableOpacity style={styles.circularBtn}>
+                            <TouchableOpacity style={styles.circularBtn} onPress={() => Alert.alert('Coming Soon', 'Sharing is under development.')}>
                                 <Ionicons name="share-outline" size={24} color={COLORS.text.primary} />
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.circularBtn}>
+                            <TouchableOpacity style={styles.circularBtn} onPress={() => Alert.alert('Coming Soon', 'Favorites are under development.')}>
                                 <Ionicons name="heart-outline" size={24} color={COLORS.text.primary} />
                             </TouchableOpacity>
                         </View>
@@ -193,7 +198,7 @@ export default function ToolDetailsScreen() {
                     {/* Condition Badge Overlaid */}
                     <View style={styles.overlayBadgeContainer}>
                         <Text style={styles.overlayBadgeText}>
-                            {tool.condition.toUpperCase()} CONDITION
+                            {(tool.condition || 'good').toUpperCase()} CONDITION
                         </Text>
                     </View>
                 </View>
@@ -202,10 +207,10 @@ export default function ToolDetailsScreen() {
                 <View style={styles.contentContainer}>
                     <View style={styles.mainInfo}>
                         <View style={styles.categoryRow}>
-                            <Text style={styles.categoryText}>{tool.category.replace('_', ' ').toUpperCase()}</Text>
+                            <Text style={styles.categoryText}>{(tool.category || 'tools').replace('_', ' ').toUpperCase()}</Text>
                             <View style={styles.ratingRow}>
                                 <Ionicons name="star" size={16} color="#F5A623" />
-                                <Text style={styles.ratingText}>{tool.rating} <Text style={styles.reviewCount}>({tool.rentalCount} reviews)</Text></Text>
+                                <Text style={styles.ratingText}>{(tool.rating ?? 0).toFixed(1)} <Text style={styles.reviewCount}>({tool.rentalCount ?? 0} reviews)</Text></Text>
                             </View>
                         </View>
                         <Text style={styles.toolName}>{tool.name}</Text>
@@ -214,7 +219,7 @@ export default function ToolDetailsScreen() {
                     {/* Pricing Card */}
                     <View style={styles.pricingCard}>
                         <View style={styles.priceHighlightRow}>
-                            <Text style={styles.priceAccent}>${(tool.hourlyRate / 100).toFixed(2)}<Text style={styles.priceUnit}> / hr</Text></Text>
+                            <Text style={styles.priceAccent}>${((tool.hourlyRate ?? 0) / 100).toFixed(2)}<Text style={styles.priceUnit}> / hr</Text></Text>
                         </View>
 
                         <View style={styles.divider} />
@@ -225,7 +230,7 @@ export default function ToolDetailsScreen() {
                             </View>
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.detailTitle}>Security Deposit</Text>
-                                <Text style={styles.detailSub}>${(tool.depositAmount / 100).toFixed(2)} (Held, fully refundable)</Text>
+                                <Text style={styles.detailSub}>${((tool.depositAmount ?? 0) / 100).toFixed(2)} (Held, fully refundable)</Text>
                             </View>
                         </View>
 
@@ -241,7 +246,7 @@ export default function ToolDetailsScreen() {
                     </View>
 
                     {/* Market Comparison Card */}
-                    <MarketPriceComparison tool={tool} durationHours={4} />
+                    <MarketPriceComparison tool={tool} durationHours={durationHours} />
 
                     {/* Description */}
                     <View style={styles.section}>
@@ -281,11 +286,31 @@ export default function ToolDetailsScreen() {
                                         <Text style={styles.lenderStatsText}>Verified Lender • {lender.lenderRating} ⭐</Text>
                                     </View>
                                 </View>
-                                <TouchableOpacity style={styles.followBtn}>
+                                <TouchableOpacity style={styles.followBtn} onPress={() => Alert.alert('Coming Soon', 'Following lenders is under development.')}>
                                     <Text style={styles.followBtnText}>Follow</Text>
                                 </TouchableOpacity>
                             </View>
-                            <TouchableOpacity style={styles.messageBtn} onPress={() => Alert.alert('Coming Soon', 'In-app messaging is arriving soon!')}>
+                            <TouchableOpacity style={styles.messageBtn} onPress={async () => {
+                                if (!tool || !lender || !user) return;
+                                try {
+                                    const threadId = await getOrCreateThread({
+                                        otherUserId: tool.lenderId,
+                                        toolId: tool.id,
+                                        bookingId: '',
+                                    });
+                                    router.push({
+                                        pathname: '/modals/chat',
+                                        params: {
+                                            threadId,
+                                            otherName: lender.displayName,
+                                            otherAvatar: lender.avatarUrl || '',
+                                            toolName: tool.name,
+                                        },
+                                    });
+                                } catch (e) {
+                                    Alert.alert('Error', 'Could not open chat. Please try again.');
+                                }
+                            }}>
                                 <Ionicons name="chatbubble-outline" size={20} color={COLORS.text.primary} />
                                 <Text style={styles.messageBtnText}>Message {lender.displayName.split(' ')[0]}</Text>
                             </TouchableOpacity>

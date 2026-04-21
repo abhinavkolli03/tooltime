@@ -37,7 +37,7 @@ export default function ToolCard({ tool, distance, onPress }: ToolCardProps) {
         >
             <View style={{ position: 'relative' }}>
                 <Image
-                    source={{ uri: tool.photoUrls[0] || 'https://via.placeholder.com/72' }}
+                    source={{ uri: tool.photoUrls?.[0] || 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800&fit=crop' }}
                     style={{ width: 72, height: 72, borderRadius: 10, backgroundColor: '#F0EBE1' }}
                 />
                 <View
@@ -62,11 +62,11 @@ export default function ToolCard({ tool, distance, onPress }: ToolCardProps) {
                             {tool.name}
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                            <Badge label={tool.category.replace('_', ' ')} variant="default" style={{ paddingVertical: 2, paddingHorizontal: 6 }} />
+                            <Badge label={(tool.category || 'tools').replace('_', ' ')} variant="default" style={{ paddingVertical: 2, paddingHorizontal: 6 }} />
                         </View>
                     </View>
                     <Text style={{ fontFamily: 'DMSerifDisplay-Regular', fontSize: 18, color: COLORS.accent.primary }}>
-                        ${tool.hourlyRate}/hr
+                        ${((tool.hourlyRate ?? 0) / 100).toFixed(0)}/hr
                     </Text>
                 </View>
 
@@ -74,7 +74,7 @@ export default function ToolCard({ tool, distance, onPress }: ToolCardProps) {
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Ionicons name="star" size={14} color="#F5A623" />
                         <Text style={{ fontFamily: 'JetBrainsMono-Regular', fontSize: 11, color: COLORS.text.muted, marginLeft: 4 }}>
-                            {tool.rating.toFixed(1)} ({tool.totalRentals})
+                            {(tool.rating ?? 0).toFixed(1)} ({tool.rentalCount ?? 0})
                         </Text>
                     </View>
                     {distance !== undefined && (

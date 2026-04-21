@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Dimensions, Platform, Linking, Alert, FlatList, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
-import MapView, { Marker, PROVIDER_GOOGLE, Circle } from 'react-native-maps';
+import MapView, { Marker, Circle } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { LucideIcon, Zap, Hammer, Ruler, Trees, Droplets, Plug, Search, SlidersHorizontal, MapPin, Heart, ChevronRight } from 'lucide-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +17,8 @@ import { COLORS } from '@/constants/theme';
 import ToolPin from '@/components/tool/ToolPin';
 import { useNearbyTools, ToolWithDistance } from '@/hooks/useNearbyTools';
 import { seedDatabase } from '@/services/seedData';
+import { useAuthStore } from '@/store/authStore';
+import LenderDashboardSkeleton from '@/components/skeletons/LenderDashboardSkeleton';
 
 const { width } = Dimensions.get('window');
 
@@ -30,43 +32,47 @@ const CATEGORIES = [
     { id: 'electrical', label: 'Electrical', icon: Plug },
 ];
 
-const EARTHY_MAP_STYLE = [
-    { "elementType": "geometry", "stylers": [{ "color": "#f5f0e8" }] },
-    { "elementType": "labels.text.fill", "stylers": [{ "color": "#6b4226" }] },
-    { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#e8dcc8" }] },
-    { "featureType": "road.arterial", "elementType": "geometry", "stylers": [{ "color": "#d4b896" }] },
-    { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#c8b89a" }] },
-    { "featureType": "poi.park", "elementType": "geometry", "stylers": [{ "color": "#d4e4c0" }] },
-    { "featureType": "landscape", "elementType": "geometry", "stylers": [{ "color": "#f0e8d8" }] }
-];
 
 export default function DiscoverScreen() {
     const insets = useSafeAreaInsets();
+    const { setRole } = useAuthStore();
     const [userLocation, setUserLocation] = useState<{ latitude: number, longitude: number } | null>(null);
     const [locationError, setLocationError] = useState(false);
     const [search, setSearch] = useState('');
     const [activeCategory, setActiveCategory] = useState('All');
     const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
     const [isSearchFocused, setIsSearchFocused] = useState(false);
-    const [role, setRole] = useState<'borrower' | 'lender'>('borrower');
+    const [showLenderTransition, setShowLenderTransition] = useState(false);
 
     const bottomSheetRef = useRef<BottomSheet>(null);
     const mapRef = useRef<any>(null);
 
     // Filter Logic
     const [isFilterModalVisible, setFilterModalVisible] = useState(false);
-    const [priceRange, setPriceRange] = useState<[number, number]>([0, 2000]); // in cents
+    const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]); // in cents
     const [selectedConditions, setSelectedConditions] = useState<string[]>(['excellent', 'good', 'fair']);
 
     // Initial center is Austin
     const centerLat = userLocation?.latitude ?? 30.2672;
     const centerLng = userLocation?.longitude ?? -97.7431;
 
-    const { tools, isLoading } = useNearbyTools(centerLat, centerLng, 2);
+    const { tools, isLoading } = useNearbyTools(centerLat, centerLng, 5);
 
-    // Initial seed check
+    // Seed check - v4 forces re-seed with verified images and accurate retail prices
     useEffect(() => {
-        seedDatabase(); // Ensure data is present for demo
+        const checkSeed = async () => {
+            try {
+                const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+                const seeded = await AsyncStorage.getItem('tooltime_seeded_v4');
+                if (!seeded) {
+                    await seedDatabase();
+                    await AsyncStorage.setItem('tooltime_seeded_v4', 'true');
+                }
+            } catch (e) {
+                seedDatabase();
+            }
+        };
+        checkSeed();
     }, []);
 
     // Location Permission
@@ -78,17 +84,22 @@ export default function DiscoverScreen() {
                 return;
             }
 
-            let location = await Location.getCurrentPositionAsync({});
-            // Force Austin coordinates for demo/simulator
-            const coords = {
-                latitude: 30.2672,
-                longitude: -97.7431,
-            };
-            setUserLocation(coords);
+            let location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+            });
 
-            // Re-center map
+            const coords = {
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+            };
+
+            // Use real GPS if valid, otherwise fall back to Austin
+            const isValidCoords = coords.latitude !== 0 && coords.longitude !== 0;
+            const finalCoords = isValidCoords ? coords : { latitude: 30.2672, longitude: -97.7431 };
+            setUserLocation(finalCoords);
+
             mapRef.current?.animateToRegion({
-                ...coords,
+                ...finalCoords,
                 latitudeDelta: 0.04,
                 longitudeDelta: 0.04,
             });
@@ -144,6 +155,20 @@ export default function DiscoverScreen() {
         }
     };
 
+    useEffect(() => {
+        if (showLenderTransition) {
+            const frame = requestAnimationFrame(() => {
+                setRole('lender');
+                router.replace('/(lender)/dashboard');
+            });
+            return () => cancelAnimationFrame(frame);
+        }
+    }, [showLenderTransition]);
+
+    if (showLenderTransition) {
+        return <LenderDashboardSkeleton />;
+    }
+
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <View style={styles.container}>
@@ -151,29 +176,18 @@ export default function DiscoverScreen() {
 
                 <MapView
                     ref={mapRef}
-                    provider={PROVIDER_GOOGLE}
                     style={styles.map}
-                    customMapStyle={EARTHY_MAP_STYLE}
                     initialRegion={{
                         latitude: 30.2672,
                         longitude: -97.7431,
                         latitudeDelta: 0.04,
                         longitudeDelta: 0.04,
                     }}
-                    showsUserLocation={false}
+                    showsUserLocation={true}
+                    showsMyLocationButton={false}
                     showsPointsOfInterest={false}
+                    showsCompass={false}
                 >
-                    {/* User Location Marker (Forced to Austin for Demo) */}
-                    {userLocation && (
-                        <Marker
-                            coordinate={userLocation}
-                            title="You"
-                        >
-                            <View style={styles.userMarkerOuter}>
-                                <View style={styles.userMarkerInner} />
-                            </View>
-                        </Marker>
-                    )}
 
                     {isLoading ? (
                         // Skeleton pins (conceptual placeholder)
@@ -190,6 +204,23 @@ export default function DiscoverScreen() {
                     )}
                 </MapView>
 
+                {/* Recenter Button */}
+                <TouchableOpacity
+                    style={[styles.recenterBtn, { top: insets.top + 180 }]}
+                    onPress={() => {
+                        if (userLocation) {
+                            mapRef.current?.animateToRegion({
+                                ...userLocation,
+                                latitudeDelta: 0.04,
+                                longitudeDelta: 0.04,
+                            });
+                        }
+                    }}
+                    activeOpacity={0.8}
+                >
+                    <Ionicons name="locate" size={20} color={COLORS.accent.primary} />
+                </TouchableOpacity>
+
                 {/* Top Control Cluster with Frosted Backdrop */}
                 <View style={[styles.headerContainer, { paddingTop: insets.top + 12 }]}>
                     <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
@@ -199,13 +230,12 @@ export default function DiscoverScreen() {
                     <View style={styles.toggleContainer}>
                         <TouchableOpacity
                             style={[styles.toggleSide, styles.toggleActive]}
-                            onPress={() => setRole('borrower')}
                         >
                             <Text style={styles.toggleActiveText}>Borrow</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={styles.toggleSide}
-                            onPress={() => setRole('lender')}
+                            onPress={() => setShowLenderTransition(true)}
                         >
                             <Text style={styles.toggleInactiveText}>Lend</Text>
                         </TouchableOpacity>
@@ -286,28 +316,28 @@ export default function DiscoverScreen() {
                             <View style={styles.selectedPeek}>
                                 <View style={styles.toolMainRow}>
                                     <Image
-                                        source={{ uri: selectedTool.photoUrls[0] }}
+                                        source={{ uri: selectedTool.photoUrls?.[0] || 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800&fit=crop' }}
                                         style={styles.toolLargeImg}
                                         contentFit="cover"
                                         transition={200}
                                     />
                                     <View style={styles.toolMainInfo}>
                                         <View style={styles.titleRow}>
-                                            <Text style={styles.toolTitle} numberOfLines={1}>{selectedTool.name}</Text>
+                                            <Text style={styles.toolTitle} numberOfLines={1}>{selectedTool.name || 'Tool'}</Text>
                                             <TouchableOpacity onPress={() => setSelectedToolId(null)}>
                                                 <Ionicons name="close-circle" size={24} color="#E0D4C0" />
                                             </TouchableOpacity>
                                         </View>
                                         <View style={styles.ratingRow}>
-                                            <Text style={styles.ratingText}>★ {selectedTool.rating.toFixed(1)}</Text>
-                                            <Text style={styles.distanceText}> • {selectedTool.distanceKm.toFixed(1)} mi away</Text>
+                                            <Text style={styles.ratingText}>★ {(selectedTool.rating ?? 0).toFixed(1)}</Text>
+                                            <Text style={styles.distanceText}> • {(selectedTool.distanceKm ?? 0).toFixed(1)} mi away</Text>
                                         </View>
                                         <Text style={styles.priceHighlight}>
-                                            ${(selectedTool.hourlyRate / 100).toFixed(0)}<Text style={styles.priceUnit}>/hr</Text>
+                                            ${((selectedTool.hourlyRate ?? 0) / 100).toFixed(0)}<Text style={styles.priceUnit}>/hr</Text>
                                         </Text>
                                     </View>
                                 </View>
-                                <Text style={styles.miniDesc} numberOfLines={2}>{selectedTool.description}</Text>
+                                <Text style={styles.miniDesc} numberOfLines={2}>{selectedTool.description || 'No description available'}</Text>
                                 <TouchableOpacity
                                     style={styles.seeToolBtn}
                                     onPress={() => router.push({
@@ -322,7 +352,7 @@ export default function DiscoverScreen() {
                         ) : (
                             <View style={styles.listPeek}>
                                 <View style={styles.peekHeader}>
-                                    <Text style={styles.peekTitle}>Tools near Austin</Text>
+                                    <Text style={styles.peekTitle}>Tools nearby</Text>
                                     <Text style={styles.peekSub}>{filteredTools.length} results</Text>
                                 </View>
                                 <FlatList
@@ -342,13 +372,13 @@ export default function DiscoverScreen() {
                                                 });
                                             }}
                                         >
-                                            <Image source={{ uri: item.photoUrls[0] }} style={styles.listItemImg} />
+                                            <Image source={{ uri: item.photoUrls?.[0] || 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800&fit=crop' }} style={styles.listItemImg} />
                                             <View style={styles.listItemInfo}>
                                                 <Text style={styles.listItemName} numberOfLines={1}>{item.name}</Text>
                                                 <Text style={styles.listItemDesc} numberOfLines={1}>{item.description}</Text>
                                                 <View style={styles.listItemMeta}>
                                                     <Text style={styles.listItemPrice}>${(item.hourlyRate / 100).toFixed(0)}/hr</Text>
-                                                    <Text style={styles.listItemDistance}>★ {item.rating.toFixed(1)} • {item.distanceKm.toFixed(1)} mi</Text>
+                                                    <Text style={styles.listItemDistance}>★ {(item.rating ?? 0).toFixed(1)} • {(item.distanceKm ?? 0).toFixed(1)} mi</Text>
                                                 </View>
                                             </View>
                                         </TouchableOpacity>
@@ -815,21 +845,21 @@ const styles = StyleSheet.create({
         fontFamily: 'DMSans-Medium',
         fontSize: 16,
     },
-    userMarkerOuter: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: 'rgba(196, 98, 42, 0.2)',
+    recenterBtn: {
+        position: 'absolute',
+        right: 16,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#FFFFFF',
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    userMarkerInner: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: '#C4622A',
-        borderWidth: 2,
-        borderColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.12,
+        shadowRadius: 6,
+        elevation: 4,
+        zIndex: 6,
     },
     searchResultsOverlay: {
         position: 'absolute',

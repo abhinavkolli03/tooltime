@@ -15,20 +15,24 @@ export default function LenderLayout() {
                 options={{ title: 'Dashboard' }}
             />
             <Tabs.Screen
-                name="listings"
-                options={{ title: 'Listings' }}
-            />
-            <Tabs.Screen
                 name="requests"
                 options={{ title: 'Requests' }}
             />
             <Tabs.Screen
+                name="messages"
+                options={{ title: 'Messages' }}
+            />
+            <Tabs.Screen
                 name="earnings"
-                options={{ title: 'Earnings' }}
+                options={{ href: null }}
             />
             <Tabs.Screen
                 name="profile"
                 options={{ title: 'Profile' }}
+            />
+            <Tabs.Screen
+                name="listings"
+                options={{ href: null }}
             />
         </Tabs>
     );

@@ -1,11 +1,12 @@
 import { db, auth } from './firebase';
 import { doc, setDoc, collection, getDocs, query, where, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { geohashForLocation } from 'geofire-common';
+import * as Location from 'expo-location';
 
 /**
  * Seeds demo lender data for the currently logged-in user.
- * This creates tool listings and pending bookings so the lender dashboard
- * has real data to display during demos.
+ * Creates tool listings and pending bookings so the lender dashboard
+ * has real data to display during demos. Uses user's actual location.
  */
 export const seedLenderData = async () => {
     const user = auth.currentUser;
@@ -14,7 +15,6 @@ export const seedLenderData = async () => {
         return;
     }
 
-    // Check if lender data already exists for this user
     const existingTools = await getDocs(query(collection(db, 'tools'), where('lenderId', '==', user.uid)));
     if (existingTools.size > 0) {
         console.log('Lender data already exists — skipping seed');
@@ -22,6 +22,18 @@ export const seedLenderData = async () => {
     }
 
     console.log('Seeding lender demo data for:', user.uid);
+
+    let baseLat = 30.2672;
+    let baseLng = -97.7431;
+    try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (loc.coords.latitude !== 0 && loc.coords.longitude !== 0) {
+            baseLat = loc.coords.latitude;
+            baseLng = loc.coords.longitude;
+        }
+    } catch (e) {
+        // fallback to Austin
+    }
 
     const LENDER_TOOLS = [
         {
@@ -34,8 +46,6 @@ export const seedLenderData = async () => {
             depositAmount: 5000,
             marketRetailPrice: 12900,
             deliveryFee: 800,
-            lat: 30.2711,
-            lng: -97.7431,
             photoUrls: ['https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800'],
             isAvailable: true,
             rating: 4.8,
@@ -53,8 +63,6 @@ export const seedLenderData = async () => {
             depositAmount: 7500,
             marketRetailPrice: 17900,
             deliveryFee: 800,
-            lat: 30.2650,
-            lng: -97.7489,
             photoUrls: ['https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=800'],
             isAvailable: false,
             rating: 4.9,
@@ -72,8 +80,6 @@ export const seedLenderData = async () => {
             depositAmount: 4000,
             marketRetailPrice: 8900,
             deliveryFee: 800,
-            lat: 30.2734,
-            lng: -97.7368,
             photoUrls: ['https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=800'],
             isAvailable: true,
             rating: 4.6,
@@ -91,8 +97,6 @@ export const seedLenderData = async () => {
             depositAmount: 5500,
             marketRetailPrice: 17900,
             deliveryFee: 800,
-            lat: 30.2745,
-            lng: -97.7412,
             photoUrls: ['https://images.unsplash.com/photo-1586864387789-628af9feed72?w=800'],
             isAvailable: true,
             rating: 4.9,
@@ -110,8 +114,6 @@ export const seedLenderData = async () => {
             depositAmount: 6000,
             marketRetailPrice: 19900,
             deliveryFee: 800,
-            lat: 30.2598,
-            lng: -97.7401,
             photoUrls: ['https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800'],
             isAvailable: true,
             rating: 4.7,
@@ -121,42 +123,40 @@ export const seedLenderData = async () => {
         },
     ];
 
-    // Seed mock borrowers
     const MOCK_BORROWERS = [
         {
             uid: 'demo_borrower_sarah',
             displayName: 'Sarah T.',
-            email: 'sarah@example.com',
+            email: 'sarah@tooltime.app',
             borrowerRating: 4.9,
             totalRentals: 12,
-            avatarUrl: 'https://i.pravatar.cc/150?u=sarah',
-            memberSince: 'Jun 2023',
+            avatarUrl: 'https://i.pravatar.cc/150?u=sarah_borrower',
+            memberSince: 'Jun 2024',
             role: 'borrower',
         },
         {
             uid: 'demo_borrower_david',
             displayName: 'David K.',
-            email: 'david@example.com',
+            email: 'david@tooltime.app',
             borrowerRating: 4.7,
             totalRentals: 8,
-            avatarUrl: 'https://i.pravatar.cc/150?u=david',
-            memberSince: 'Aug 2023',
+            avatarUrl: 'https://i.pravatar.cc/150?u=david_borrower',
+            memberSince: 'Aug 2024',
             role: 'borrower',
         },
         {
             uid: 'demo_borrower_jamie',
             displayName: 'Jamie L.',
-            email: 'jamie@example.com',
+            email: 'jamie@tooltime.app',
             borrowerRating: 4.8,
             totalRentals: 15,
-            avatarUrl: 'https://i.pravatar.cc/150?u=jamie',
-            memberSince: 'Jan 2024',
+            avatarUrl: 'https://i.pravatar.cc/150?u=jamie_borrower',
+            memberSince: 'Jan 2025',
             role: 'borrower',
         },
     ];
 
     try {
-        // 1. Seed mock borrowers
         for (const borrower of MOCK_BORROWERS) {
             const { uid, ...data } = borrower;
             await setDoc(doc(db, 'users', uid), {
@@ -165,18 +165,21 @@ export const seedLenderData = async () => {
             }, { merge: true });
         }
 
-        // 2. Seed tools
-        for (const tool of LENDER_TOOLS) {
+        for (let i = 0; i < LENDER_TOOLS.length; i++) {
+            const tool = LENDER_TOOLS[i];
             const { id, ...data } = tool;
+            const lat = baseLat + (Math.random() - 0.5) * 0.02;
+            const lng = baseLng + (Math.random() - 0.5) * 0.02;
             await setDoc(doc(db, 'tools', id), {
                 ...data,
                 lenderId: user.uid,
-                geohash: geohashForLocation([data.lat, data.lng]),
+                lat,
+                lng,
+                geohash: geohashForLocation([lat, lng]),
                 createdAt: serverTimestamp(),
             }, { merge: true });
         }
 
-        // 3. Seed pending bookings (incoming requests)
         const now = new Date();
 
         await setDoc(doc(db, 'bookings', `lb_${user.uid}_1`), {
@@ -190,8 +193,8 @@ export const seedLenderData = async () => {
             platformFee: 540,
             depositAmount: 5000,
             totalCharged: 6740,
-            borrowerLat: 30.2680,
-            borrowerLng: -97.7450,
+            borrowerLat: baseLat + 0.002,
+            borrowerLng: baseLng - 0.003,
             confirmationCode: '4829',
             depositStatus: 'held',
             paymentStatus: 'pending',
@@ -210,8 +213,8 @@ export const seedLenderData = async () => {
             platformFee: 350,
             depositAmount: 6000,
             totalCharged: 4650,
-            borrowerLat: 30.2705,
-            borrowerLng: -97.7410,
+            borrowerLat: baseLat - 0.001,
+            borrowerLng: baseLng + 0.002,
             confirmationCode: '7153',
             depositStatus: 'held',
             paymentStatus: 'pending',
@@ -219,7 +222,6 @@ export const seedLenderData = async () => {
             updatedAt: serverTimestamp(),
         }, { merge: true });
 
-        // 4. Seed an active delivery (accepted booking)
         await setDoc(doc(db, 'bookings', `lb_${user.uid}_3`), {
             toolId: LENDER_TOOLS[1].id,
             borrowerId: 'demo_borrower_jamie',
@@ -231,10 +233,10 @@ export const seedLenderData = async () => {
             platformFee: 500,
             depositAmount: 7500,
             totalCharged: 6100,
-            borrowerLat: 30.2672,
-            borrowerLng: -97.7431,
-            lenderLat: 30.2698,
-            lenderLng: -97.7445,
+            borrowerLat: baseLat - 0.003,
+            borrowerLng: baseLng + 0.001,
+            lenderLat: baseLat + 0.001,
+            lenderLng: baseLng - 0.001,
             confirmationCode: '3091',
             depositStatus: 'held',
             paymentStatus: 'pending',
@@ -243,7 +245,6 @@ export const seedLenderData = async () => {
             updatedAt: serverTimestamp(),
         }, { merge: true });
 
-        // 5. Seed a completed booking for earnings
         await setDoc(doc(db, 'bookings', `lb_${user.uid}_4`), {
             toolId: LENDER_TOOLS[2].id,
             borrowerId: 'demo_borrower_sarah',
@@ -255,8 +256,8 @@ export const seedLenderData = async () => {
             platformFee: 320,
             depositAmount: 4000,
             totalCharged: 4000,
-            borrowerLat: 30.2672,
-            borrowerLng: -97.7431,
+            borrowerLat: baseLat,
+            borrowerLng: baseLng,
             confirmationCode: '8823',
             depositStatus: 'released',
             paymentStatus: 'paid',
@@ -265,7 +266,6 @@ export const seedLenderData = async () => {
             updatedAt: serverTimestamp(),
         }, { merge: true });
 
-        // 6. Seed message threads
         await setDoc(doc(db, 'messages', `lb_${user.uid}_3`), {
             participants: [user.uid, 'demo_borrower_jamie'],
             toolId: LENDER_TOOLS[1].id,
